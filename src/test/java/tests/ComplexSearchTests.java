@@ -3,9 +3,20 @@
  */
 package tests;
 
+import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.http.ContentType;
 import io.restassured.path.json.JsonPath;
+import io.restassured.specification.ResponseSpecification;
+import org.hamcrest.Matchers;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import ru.kipolad.dto.complexsearch.ComplexSearchFat;
+
+import java.util.stream.Stream;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -13,24 +24,30 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ComplexSearchTests extends BasicConfigurations {
+    ResponseSpecification responseSpecification = null;
+
+    @BeforeEach
+    void beforeTest() {
+        responseSpecification = new ResponseSpecBuilder()
+                .expectStatusCode(200)
+                .expectStatusLine("HTTP/1.1 200 OK")
+                .expectContentType(ContentType.JSON)
+                .expectResponseTime(Matchers.lessThan(2000L))
+                .build();
+    }
 
     @Test
     void searchRecipes() {
-        given()
-                .queryParam("apiKey", getApiKey())
-                .when()
-                .get(getBaseUrl() + "recipes/complexSearch")
-                .then()
-                .statusLine("HTTP/1.1 200 OK")
-                .contentType(ContentType.JSON)
-                .time(lessThan(2000L));
-
         JsonPath response = given()
                 .queryParam("apiKey", getApiKey())
                 .when()
                 .get(getBaseUrl() + "recipes/complexSearch")
+                .then()
+                .spec(responseSpecification)
+                .extract()
                 .body()
                 .jsonPath();
+
 
         assertThat(response.get("offset"), equalTo(0));
         assertThat(response.get("number"), equalTo(10));
@@ -38,26 +55,27 @@ public class ComplexSearchTests extends BasicConfigurations {
 
     @Test
     void searchRecipesExcludeCuisine() {
-
         given()
                 .queryParam("apiKey", getApiKey())
                 .queryParam("excludeCuisine", "British")
                 .when()
                 .get(getBaseUrl() + "recipes/complexSearch")
                 .then()
-                .statusLine("HTTP/1.1 200 OK")
-                .contentType(ContentType.JSON)
-                .time(lessThan(2000L));
+                .spec(responseSpecification);
     }
 
-    @Test
-    void searchRecipesWithTomato() {
 
+    @ParameterizedTest
+    @ValueSource(strings = {"tomato", "cheese", "egg", "carrot"})
+    void searchRecipesWithIngredient(String ingredient) {
         JsonPath response = given()
                 .queryParam("apiKey", getApiKey())
-                .queryParam("query", "tomato")
+                .queryParam("query", ingredient)
                 .when()
                 .get(getBaseUrl() + "recipes/complexSearch")
+                .then()
+                .spec(responseSpecification)
+                .extract()
                 .body()
                 .jsonPath();
 
@@ -65,21 +83,23 @@ public class ComplexSearchTests extends BasicConfigurations {
         String titleValue;
         if (numberFromResponse != 0) {
             for (int i = 0; i < numberFromResponse - 1; i++) {
-                titleValue = response.get("results.title[" + i + "]");
-                titleValue = titleValue.toLowerCase();
-                assertTrue(titleValue.contains("tomato"));
+                titleValue = response.get("results.title[" + i + "]").toString().toLowerCase();
+                assertTrue(titleValue.contains(ingredient));
             }
         }
     }
 
-    @Test
-    void searchRecipesIncludeIngredients() {
-
+    @ParameterizedTest
+    @ValueSource(strings = {"pork", "beef", "chicken", "fish"})
+    void searchRecipesWithDiet(String ingredient) {
         JsonPath response = given()
                 .queryParam("apiKey", getApiKey())
                 .queryParam("diet", "vegetarian")
                 .when()
                 .get(getBaseUrl() + "recipes/complexSearch")
+                .then()
+                .spec(responseSpecification)
+                .extract()
                 .body()
                 .jsonPath();
 
@@ -87,38 +107,42 @@ public class ComplexSearchTests extends BasicConfigurations {
         String titleValue;
         if (numberFromResponse != 0) {
             for (int i = 0; i < numberFromResponse - 1; i++) {
-                titleValue = response.get("results.title[" + i + "]");
-                String finalTitleValue = titleValue.toLowerCase();
-                assertAll(
-                        () -> assertFalse(finalTitleValue.contains("pork")),
-                        () -> assertFalse(finalTitleValue.contains("beef")),
-                        () -> assertFalse(finalTitleValue.contains("chicken"))
-                );
+                titleValue = response.get("results.title[" + i + "]").toString().toLowerCase();
+                assertFalse(titleValue.contains(ingredient));
             }
         }
     }
 
-    @Test
-    void searchRecipesMinMaxFat() {
+    private static Stream<Arguments> FatAmount() {
+        return Stream.of(
+                Arguments.of(new ComplexSearchFat(10, 70)),
+                Arguments.of(new ComplexSearchFat(20, 60)),
+                Arguments.of(new ComplexSearchFat(20, 40)),
+                Arguments.of(new ComplexSearchFat(50, 150)));
+    }
 
+    @ParameterizedTest
+    @MethodSource("FatAmount")
+    void complexSearchWithFatAmount(ComplexSearchFat fat) {
         JsonPath response = given()
                 .queryParam("apiKey", getApiKey())
-                .queryParam("minFat", "20")
-                .queryParam("maxFat", "70")
+                .queryParam("minFat", fat.getMin())
+                .queryParam("maxFat", fat.getMax())
                 .when()
                 .get(getBaseUrl() + "recipes/complexSearch")
+                .then()
+                .spec(responseSpecification)
+                .extract()
                 .body()
                 .jsonPath();
 
         int numberFromResponse = response.get("number");
-        Float amount;
         if (numberFromResponse != 0) {
             for (int i = 0; i < numberFromResponse - 1; i++) {
-                amount = response.get("results.nutrition[" + i + "].nutrients.amount[0]");
-                Float finalAmount = amount;
+                Float amount = response.get("results.nutrition[" + i + "].nutrients.amount[0]");
                 assertAll(
-                        () -> assertTrue(finalAmount > 20),
-                        () -> assertTrue(finalAmount < 70)
+                        () -> assertTrue(amount >= fat.getMin()),
+                        () -> assertTrue(amount <= fat.getMax())
                 );
             }
         }

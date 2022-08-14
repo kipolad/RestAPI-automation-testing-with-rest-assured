@@ -3,6 +3,7 @@
  */
 package tests;
 
+import io.restassured.RestAssured;
 import org.junit.jupiter.api.BeforeAll;
 
 import java.io.FileInputStream;
@@ -14,6 +15,7 @@ public abstract class BasicConfigurations {
     static Properties properties = new Properties();
     private static String apiKey;
     private static String baseUrl;
+    private static String hash;
 
     @BeforeAll
     static void initTest() {
@@ -25,6 +27,9 @@ public abstract class BasicConfigurations {
         }
         apiKey = properties.getProperty("apiKey");
         baseUrl = properties.getProperty("base_url");
+        hash = properties.getProperty("hash");
+
+        RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
     }
 
     public static String getApiKey() {
@@ -33,5 +38,9 @@ public abstract class BasicConfigurations {
 
     public static String getBaseUrl() {
         return baseUrl;
+    }
+
+    public static String getHash() {
+        return hash;
     }
 }
